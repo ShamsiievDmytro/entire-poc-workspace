@@ -1,5 +1,5 @@
 # entire-poc-workspace
-
+I am Dmytro Shamsiievs
 Hub repository for the Entire IO Pattern C validation proof-of-concept.
 
 This repo is the **workspace hub** — the launch point for AI agent sessions. It contains no application code. It holds shared configuration, setup scripts, validation documentation, and the VS Code multi-root workspace file.
