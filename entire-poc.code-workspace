@@ -1,0 +1,13 @@
+{
+  "folders": [
+    { "name": "workspace (hub)", "path": "../entire-poc-workspace" },
+    { "name": "backend",         "path": "../entire-poc-backend" },
+    { "name": "frontend",        "path": "../entire-poc-frontend" }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/node_modules": true,
+      "**/dist": true
+    }
+  }
+}
