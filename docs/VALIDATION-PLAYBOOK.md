@@ -3,6 +3,7 @@
 This document contains runnable, step-by-step test instructions for each validation scenario defined in REQUIREMENTS.md Section 4.3.
 
 ---
+Dmytro Shamsiiev
 
 ## Scenario 1 — Single-repo session (backend only)
 
