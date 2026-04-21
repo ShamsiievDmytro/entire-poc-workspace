@@ -1,0 +1,66 @@
+scripts/bootstrap-services.sh
+  f8553b7b4c5fd899 1-27
+.entire/settings.json
+  f8553b7b4c5fd899 1-10
+skills/README.md
+  f8553b7b4c5fd899 1-3
+scripts/lib/repos.sh
+  f8553b7b4c5fd899 1-21
+docs/VALIDATION-PLAYBOOK.md
+  f8553b7b4c5fd899 1-191
+scripts/install-task.ps1
+  f8553b7b4c5fd899 1-20
+entire-poc.code-workspace
+  f8553b7b4c5fd899 1-13
+scripts/install-cron.sh
+  f8553b7b4c5fd899 1-19
+docs/RESULTS-TEMPLATE.md
+  f8553b7b4c5fd899 1-80
+docs/ARCHITECTURE.md
+  f8553b7b4c5fd899 1-1264
+.claude/settings.json
+  f8553b7b4c5fd899 1-15
+README.md
+  f8553b7b4c5fd899 2-78
+docs/REQUIREMENTS.md
+  f8553b7b4c5fd899 1-465
+.gitignore
+  f8553b7b4c5fd899 1-3
+scripts/commit-entire-config.sh
+  f8553b7b4c5fd899 1-23
+scripts/entire-attach-watcher.sh
+  f8553b7b4c5fd899 1-71
+skills/add-endpoint.md
+  f8553b7b4c5fd899 1-17
+scripts/setup-workspace.sh
+  f8553b7b4c5fd899 1-29
+scripts/inspect-state.sh
+  f8553b7b4c5fd899 1-25
+templates/entire-service-settings.json
+  f8553b7b4c5fd899 1-10
+scripts/run-validation.sh
+  f8553b7b4c5fd899 1-17
+scripts/dev-onboard.sh
+  f8553b7b4c5fd899 1-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "d1ada76436ee6e27e579e1a50c2c7afad82e0c03",
+  "prompts": {
+    "f8553b7b4c5fd899": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "88b279c9-4a9f-46cf-a09f-133755f7770c",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Dmytro Shamsiiev",
+      "messages": [],
+      "total_additions": 4149,
+      "total_deletions": 0,
+      "accepted_lines": 4149,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/ed7a6d841617fd9befb5152bee8d758006d7a84395661bc7aa210d9d2179bce7"
+    }
+  }
+}
