@@ -1,0 +1,28 @@
+scripts/inspect-gitai-notes.sh
+  1612649c4bf0b88e 1-30
+scripts/install-gitai.sh
+  1612649c4bf0b88e 1-15
+docs/GITAI-VALIDATION-RESULTS.md
+  1612649c4bf0b88e 1-368
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "44e13e96aae9c27a4d0933aeafa69d2d4dd771a7",
+  "prompts": {
+    "1612649c4bf0b88e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9b4e6eb7-f49a-48c2-b519-1842319d6fe1",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Dmytro Shamsiiev",
+      "messages": [],
+      "total_additions": 413,
+      "total_deletions": 0,
+      "accepted_lines": 413,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/c97864a2a696a087a14f99fa86b4be3d6fd7c23d70903251c77480e42a79ece4"
+    }
+  }
+}
