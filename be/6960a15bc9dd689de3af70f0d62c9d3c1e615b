@@ -1,0 +1,24 @@
+skills/add-endpoint.md
+  f47d465ab35adc6a 22-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "be6960a15bc9dd689de3af70f0d62c9d3c1e615b",
+  "prompts": {
+    "f47d465ab35adc6a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c2466fea-85f2-4d3e-8784-25f862e22176",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Dmytro Shamsiiev",
+      "messages": [],
+      "total_additions": 3,
+      "total_deletions": 0,
+      "accepted_lines": 3,
+      "overriden_lines": 0,
+      "messages_url": "https://usegitai.com/cas/7340225fe0a683551a3201198eeebd58811279bd1697b1b1e14f2837baf98821"
+    }
+  }
+}
