@@ -15,3 +15,7 @@ When the user asks for "a new metric" or "a new chart" that needs end-to-end wir
 
 ## Reasoning notes
 This skill deliberately spans both service repos so it produces multi-repo agent sessions for Pattern C testing.
+
+## Testing notes
+
+Tested during Pattern C validation on 2026-04-21.
