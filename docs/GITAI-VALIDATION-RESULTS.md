@@ -305,12 +305,26 @@ Line-level per-commit attribution works in our cross-repo workspace workflow. Th
 4. **Accuracy:** `unknown_additions` correctly distinguished from `ai_additions` (4 auto-included test artifact lines flagged as unknown)
 5. **Coexistence:** Git AI and Entire ran simultaneously with zero interference throughout the validation
 
-### Caveats
+### Caveats — all verified
 
-- **Human-only commit control case** (REQ-V-4) not formally tested — all commits in this PoC were agent-assisted. In production, human-only commits should show zero agent lines (Git AI only attributes what agents checkpoint).
-- **`messages_url`** points to `usegitai.com/cas/...` — prompt storage is on Git AI's servers by default. For production, evaluate self-hosting or whether local-only storage (`git-ai config --local-only`) is sufficient.
-- **Note push discipline:** `git push origin refs/notes/*` must be part of the push workflow. Standard `git push` does NOT push notes by default. Configure via `git config --global remote.origin.push 'refs/notes/*:refs/notes/*'` or enforce in CI.
-- **Rebase/squash behavior** not tested in this validation. Git AI docs claim automatic rewriting — should be verified before production rollout.
+All four original caveats have been tested and resolved:
+
+1. **Human-only commit control case (REQ-V-4): VERIFIED.**
+   Commit `7ee324a` was created using only Bash (no Write/Edit agent tools). Result: Git Note exists with `"prompts": {}` (empty). `git ai stats` shows `ai_additions: 0`, `unknown_additions: 3`. Git AI correctly attributes zero lines to AI when no agent tools were used. The 3 lines are classified as "unknown" rather than "human" — a correct semantic: Git AI tracks what agents DID write; everything else is unattributed.
+
+2. **`messages_url` / prompt privacy: RESOLVED.**
+   Running `git ai config set prompt_storage local` removes the `messages_url` field entirely from Git Notes. Commit `ba0d9c8` (made after the config change) has no `messages_url` — prompts stay in local SQLite only. For production: set this config on every developer machine during onboarding. The attribution data (agent, model, line ranges) is unaffected — only the prompt upload is disabled.
+
+3. **Note push discipline: RESOLVED.**
+   Configure per-repo (or global) push refspecs:
+   ```bash
+   git config --add remote.origin.push 'refs/heads/main:refs/heads/main'
+   git config --add remote.origin.push 'refs/notes/*:refs/notes/*'
+   ```
+   Verified: `git push` (no explicit ref) pushes both main and notes automatically. Local and remote `refs/notes/ai` confirmed in sync. For production: add this to repo setup scripts or enforce via git templates.
+
+4. **Rebase/squash attribution survival: VERIFIED.**
+   Created two commits on branch `test/rebase-squash-notes` (A: `796b9b5`, B: `22596b2`), each with Git AI notes. Squash-merged into main as `acc1ed8`. Result: the squash commit's note **correctly combines** both files from A and B, with `accepted_lines: 6` (3+3) and both file paths listed. Git AI's automatic rewrite works as documented — attribution survives squash merges.
 
 ---
 
@@ -322,11 +336,18 @@ Line-level per-commit attribution works in our cross-repo workspace workflow. Th
 
 2. **IDE/Agent restart:** After install, restart VS Code and all agent sessions. Document in onboarding.
 
-3. **Git Notes push:** Configure each repo (or global git config) to push notes:
+3. **Git Notes push:** Configure each repo (or global git config) to push notes alongside branches (verified working in this validation):
    ```bash
-   git config --global remote.origin.push 'refs/notes/*:refs/notes/*'
+   git config --add remote.origin.push 'refs/heads/main:refs/heads/main'
+   git config --add remote.origin.push 'refs/notes/*:refs/notes/*'
    ```
-   Or add to CI/CD pipeline.
+   This ensures `git push` sends both code and attribution. Add to repo setup scripts or git templates.
+
+3b. **Prompt privacy:** Run on each developer machine:
+   ```bash
+   git ai config set prompt_storage local
+   ```
+   This prevents prompt content from being uploaded to usegitai.com. Attribution metadata (agent, model, line ranges) is unaffected.
 
 4. **GitLab notes support:** Verify GitLab handles `refs/notes/ai` correctly — GitLab supports Git Notes natively, but verify the API path differs from GitHub (`/projects/:id/repository/commits/:sha/comments` vs raw refs).
 
