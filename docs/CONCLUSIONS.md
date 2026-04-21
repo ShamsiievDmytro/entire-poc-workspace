@@ -1,76 +1,106 @@
-# Conclusions — Entire Pattern C Validation
+# Conclusions — Entire Pattern A* Validation
 
 **Date:** 2026-04-21
-**Recommendation:** NEEDS-PLAN-B
+**Recommendation:** GO — Adopt Pattern A* for production
 
 ---
 
 ## Final Verdict
 
-**NEEDS-PLAN-B** — Scenario 3 architecturally passes (the workspace transcript captures cross-repo file paths from both `entire-poc-backend` and `entire-poc-frontend` in a single session), but session-to-commit joins are completely absent (0 links at any confidence level) because service repos produce no independent checkpoints when commits are made via subshell from a workspace-rooted agent session.
+Pattern A* (workspace-only Entire enablement with transcript-first ingestion) is
+the validated production approach for the multi-repo workspace.
+
+The original Pattern C design — enabling Entire in both workspace and all
+service repos — was found to be unnecessary and ineffective. Service repos
+launched no Entire sessions of their own when commits happened via subshell
+from a workspace-rooted agent process. The per-repo enablement contributed
+nothing measurable to the data model.
+
+Pattern A* removes this dead complexity. Only the workspace hub needs Entire
+installed. The backend ingestion pipeline derives per-repo attribution
+directly from the workspace transcript's filePath events, then matches against
+service-repo commits via the GitHub API for MEDIUM-confidence
+session-to-commit linking.
 
 ---
 
-## What Works
+## What Pattern A* Captures
 
-1. **Cross-repo file path capture**: The workspace's `full.jsonl` contains 11 unique `filePath` entries spanning all three repos. This is the core mechanism Pattern C depends on, and it works correctly.
+- Cross-repo session continuity (single session ID across all touched repos)
+- Per-repo file-touch attribution (which session touched which files in which repo)
+- Tool usage (Read, Edit, Write, Bash, Skill, Task, Grep, Glob, WebSearch)
+- Slash commands invoked
+- Subagent (Task) spawns
+- Auto-summarized friction and open_items per session
+- Learnings (repo / code / workflow categories)
+- Token usage (input, output, cache_read)
+- Session-to-commit links at MEDIUM confidence (timestamp + file overlap)
 
-2. **Auto-summarize quality**: The session metadata includes structured `intent`, `outcome`, `learnings` (repo/code/workflow), `friction` (2 items), and `open_items` (3 items). The summary accurately describes the validation session.
+## What Pattern A* Does NOT Capture
 
-3. **Line-level attribution (workspace)**: The workspace checkpoint has `agent_percentage: 100` with `agent_lines: 4`, correctly attributing the workspace-side changes.
+- Line-level attribution per commit (`agent_percentage`, `agent_lines`,
+  `human_modified`, `human_added`, `human_removed`)
+- HIGH-confidence session-to-commit links
 
-4. **Session continuity**: All scenarios (1–5) ran under a single session ID (`c2466fea-85f2-4d3e-8784-25f862e22176`). Multiple sequential commits across repos within one session are naturally grouped, not split.
-
-5. **Orphan recovery**: `entire doctor --force` ran without errors. The killed session (scenario 6) left no orphaned shadow branches.
-
----
-
-## What Does Not Work
-
-1. **Per-repo checkpoints for service repos**: Backend and frontend `entire/checkpoints/v1` branches contain only the initialization commit. No scenario produced a checkpoint in these repos' branches. The Entire hooks in service repos do not trigger when commits are made via `(cd ../repo && git commit)` subshells from a workspace-rooted session.
-
-2. **Session-to-commit linking**: `session_commit_links = 0`. The ingestion pipeline requires per-repo checkpoint data to exist in order to match sessions to commits. Since service repos have no checkpoints, no links are created.
-
-3. **`session_repo_touches`**: Zero rows. The ingestion pipeline does not extract repo-touch information from the workspace transcript's cross-repo file paths.
-
-4. **Cross-repo session detection via API**: The `/api/sessions/cross-repo` endpoint returns no data because the underlying joining tables are empty.
+These limitations affect approximately 4 of the 20+ planned dashboard metrics.
+File-level proxies are available for those metrics from the workspace
+transcript data.
 
 ---
 
-## Root Cause
+## Production Rollout Implications
 
-The Entire CLI creates checkpoints via git hooks installed in each repo. These hooks fire when git operations occur within that repo. However, in Pattern C's cross-repo workflow:
+For the real workspace (~60 service repos):
 
-- The agent session runs in the **workspace** repo
-- File edits happen via absolute paths to sibling repos
-- Commits in sibling repos happen via **subshell** commands: `(cd ../entire-poc-backend && git commit)`
-- The workspace's Entire hooks capture the full transcript (including cross-repo file paths) correctly
-- But the service repos' git hooks either don't fire or don't associate with the workspace session
-- Result: transcript data exists but per-repo checkpoint data doesn't, breaking the join
+- Enable Entire ONLY in `_wod.workspace/` — one repo, not 61
+- No per-repo bootstrap script needed
+- No `dev-onboard.sh` per repo — developers run `entire enable` once in the
+  workspace only
+- No `entire-attach-watcher.sh` daemon — Plan B is not needed
+- Service repos remain completely untouched
+- Single source of truth: workspace's `entire/checkpoints/v1` branch
+- Platform's ingestion pipeline does the per-repo attribution server-side
 
----
-
-## Plan B Recommendation
-
-Enable `entire-attach-watcher.sh` (Plan B) and re-run scenarios 3, 4, and 5. Plan B forces session-to-commit linkage by calling `entire attach` after every commit in a service repo, explicitly linking the current workspace session to the service repo's commit.
-
-Alternatively, enhance the ingestion pipeline to:
-1. Parse the workspace transcript's `filePath` entries
-2. Resolve each path to a repo name
-3. Match against commits in those repos by timestamp overlap with the session window
-4. Create `session_commit_links` and `session_repo_touches` entries directly from the workspace transcript
-
-This "transcript-first" approach would eliminate the dependency on per-repo checkpoints entirely and leverage the data that Pattern C already captures successfully.
+Daily developer workflow is unchanged from today.
 
 ---
 
-## Summary Table
+## Evidence Summary
 
-| Scenario | Commit SHAs | Hard Pass | Soft Pass | Observed Confidence |
-|---|---|---|---|---|
-| 1 — Single-repo backend | `a93d61c` | NO (no per-repo checkpoint) | N/A | N/A |
-| 2 — Single-repo frontend | `94275a0` | NO (no per-repo checkpoint) | N/A | N/A |
-| 3 — Cross-repo (critical) | backend `a2b299e`, frontend `280f32f` | PARTIAL (transcript YES, links NO) | NO (0 links) | None |
-| 4 — Three-repo | workspace `ae8b8ec`, backend `10dddee`, frontend `40b3ce2` | PARTIAL (transcript YES, links NO) | NO (0 links) | None |
-| 5 — Multi-commit | backend `93016a8`/`d08483e`, frontend `dac3530` | PARTIAL (transcript YES, links NO) | NO (0 links) | None |
-| 6 — Crashed session | uncommitted | YES (doctor clean) | YES (no orphan) | N/A |
+### Database State
+
+```
+sessions:              1
+session_repo_touches:  3  (1 per repo)
+repo_checkpoints:      3  (workspace only)
+session_commit_links:  16 (9 MEDIUM, 7 LOW)
+```
+
+### Cross-repo Session Map
+
+```json
+Session c2466fea-85f2-4d3e-8784-25f862e22176:
+  Repos: [entire-poc-backend, entire-poc-frontend, entire-poc-workspace]
+  Links: 16 total (10 backend, 6 frontend)
+  Best confidence: MEDIUM (0.7)
+  Join reason: timestamp_files_overlap
+```
+
+### Key Metrics from Validation
+
+- Workspace transcript captured 23 unique file paths across 3 repos
+- 9 of 16 commit links achieved MEDIUM confidence (56% — based on timestamp + file overlap)
+- 7 links at LOW confidence (timestamp-only fallback)
+- 0 links at HIGH confidence (expected — no per-repo session ID matching possible)
+- All 3 chart endpoints return data (tool-usage: 3 tools, friction: 1 session, open-items: 1 session)
+
+### Migration from Pattern C
+
+The critical bug discovered in Pattern C was that `filePath` was nested inside
+`toolUseResult.file.filePath` and `toolUseResult.filePath` in the Entire transcript
+format, but the JSONL parser only checked the top-level `event.filePath`. Additionally,
+tool names and file paths were split across assistant `tool_use` events (name + input)
+and user `tool_result` events (result + filePath). Fixing the parser to extract from
+all nesting levels was the key change that unlocked the full pipeline.
+
+See [RESULTS-TEMPLATE.md](./RESULTS-TEMPLATE.md) for detailed per-scenario results.

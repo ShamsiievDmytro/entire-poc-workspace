@@ -158,3 +158,101 @@ Pattern C's cross-repo transcript capture WORKS — the workspace checkpoint fai
 ### Recommendation
 
 This is a **NEEDS-PLAN-B** situation. The transcript data is there (cross-repo paths captured) but the session-to-commit linking pipeline has no per-repo checkpoint data to join against. Plan B (`entire-attach-watcher.sh`) or an enhanced ingestion pipeline that extracts commit linkage directly from the workspace transcript's file paths would close this gap.
+
+---
+
+## Pattern A* Re-Validation Results (2026-04-21)
+
+After the original validation found that per-repo Entire enablement produced no useful data,
+the system was migrated to Pattern A* (workspace-only) and the ingestion pipeline was
+modified to derive cross-repo attribution directly from the workspace transcript.
+
+### Cleanup commits
+
+| Repo | SHA | Description |
+|---|---|---|
+| entire-poc-backend | `325dacf` | Removed .entire/ and disabled hooks |
+| entire-poc-frontend | `63dc490` | Removed .entire/ and disabled hooks |
+
+### Ingestion pipeline changes
+
+| Repo | SHA | Description |
+|---|---|---|
+| entire-poc-backend | `6c6f316` | Transcript-first ingestion — workspace-only fetch, GitHub API commit matching |
+| entire-poc-backend | `cd2a838` | Fix nested filePath extraction from toolUseResult and tool_use events |
+
+### Re-validation scenario commits
+
+| Scenario | Repo | SHA |
+|---|---|---|
+| 3R | backend | `5f0ea19` |
+| 3R | frontend | `8b31064` |
+| 4R | workspace | `be6960a` |
+| 4R | backend | `d74f2cc` |
+| 4R | frontend | `bae4a6e` |
+| 5R-a | backend | `3ecbab0` |
+| 5R-b | frontend | `b616329` |
+| 5R-c | backend | `3217394` |
+
+### Database state after re-validation
+
+```
+TABLE COUNTS
+sessions:              1
+session_repo_touches:  3
+repo_checkpoints:      3
+session_commit_links:  16
+
+Confidence breakdown:
+  MEDIUM: 9
+  LOW:    7
+
+Cross-repo evidence:
+  Session c2466fea-85f2-4d3e-8784-25f862e22176 touches 3 repos:
+    entire-poc-backend, entire-poc-frontend, entire-poc-workspace
+
+Per-repo touch summary:
+  entire-poc-backend:    1 session
+  entire-poc-frontend:   1 session
+  entire-poc-workspace:  1 session
+```
+
+### Cross-repo API output
+
+```json
+[{
+  "sessionId": "c2466fea-85f2-4d3e-8784-25f862e22176",
+  "repos": ["entire-poc-backend", "entire-poc-frontend", "entire-poc-workspace"],
+  "commits": [16 links total],
+  "confidence": "MEDIUM"
+}]
+```
+
+Session touches 3 repos with 9 MEDIUM and 7 LOW confidence links across 16 service-repo commits.
+
+### Workspace transcript filePath evidence
+
+Newest checkpoint (`34/55d48301e9`) contains 23 unique filePaths:
+- **Backend paths present?** YES (14 files — routes, config, domain, ingestion, utils, tests)
+- **Frontend paths present?** YES (4 files — client.ts, CrossRepoSessionMap.tsx, IngestionStatus.tsx, format.ts)
+- **Workspace paths present?** YES (5 files — CONCLUSIONS.md, RESULTS-TEMPLATE.md, pattern-a-star-migration-prompt.md, validation-playbook-prompt.md, add-endpoint.md)
+
+### Chart data
+
+- Tool usage: 3 tools (Read: 12, Edit: 11, Write: 2)
+- Friction: 1 session with friction data
+- Open items: 1 session with open items data
+
+### Verdict
+
+**GO — Pattern A* validated for production.**
+
+All Phase 6 checks pass:
+- Service repos cleaned (`.entire/` removed, hooks removed, commits pushed)
+- Backend builds and all 28 tests pass
+- Cross-repo transcript captures backend AND frontend paths in same session
+- `session_repo_touches` populated (3 rows — 1 per repo)
+- Multi-repo evidence exists (1 session touching 3 repos)
+- `session_commit_links` populated (16 links — 9 MEDIUM, 7 LOW)
+- Cross-repo API responds with populated session data
+- Charts have data (tool usage, friction, open items)
