@@ -19,3 +19,6 @@ This skill deliberately spans both service repos so it produces multi-repo agent
 ## Testing notes
 
 Tested during Pattern C validation on 2026-04-21.
+
+## Pattern A* re-validation
+Re-tested on 2026-04-21 after removing per-repo Entire setup.
