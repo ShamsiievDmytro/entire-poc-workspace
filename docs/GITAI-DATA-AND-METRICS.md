@@ -1,385 +1,296 @@
-# Git AI Data Model & Metrics Catalog
+# Git AI — How It Works, What It Captures, and Known Limitations
 
-**Date:** 2026-04-21
-**Based on:** Git AI Standard v3.0.0 (authorship/3.0.0), Git AI CLI 1.3.2
-**Source data:** 56 commits across 3 repos from validation session
+**Last updated:** 2026-04-22
+**Git AI Standard:** authorship/3.0.0 | CLI: 1.3.2
+**Validated on:** 91 commits across 3 repos, 1 developer, Claude Code + subagents
 
 ---
 
-## 1. What Git AI Preserves — Raw Data Fields
+## 1. How Git AI Attribution Works
 
-Every commit with agent involvement gets a Git Note in `refs/notes/ai`. The note has two sections: a file map and a JSON metadata block, separated by `---`.
+### 1.1 The capture mechanism
 
-### 1.1 File Map Section (top)
+Git AI doesn't guess who wrote what. It intercepts agent tool calls via hooks and records exactly which lines the agent produced.
+
+```
+1. Agent calls Write/Edit tool on a file
+2. PreToolUse hook fires → git-ai records file state BEFORE edit
+3. Agent writes/edits the file
+4. PostToolUse hook fires → git-ai records file state AFTER edit
+5. git-ai diffs before/after → knows exactly which bytes changed
+6. On git commit → all checkpoint diffs condensed into a Git Note
+```
+
+The hooks live in `~/.claude/settings.json` (or equivalent for Cursor/Copilot). They fire on **every tool call** regardless of which repo the file is in — this is why cross-repo workspace sessions work.
+
+### 1.2 What Git AI tracks vs what it doesn't
+
+**Git AI tracks: what the agent wrote.**
+Every line that flows through an agent's Write/Edit/MultiEdit tool call is checkpointed with byte-level precision.
+
+**Git AI does NOT track: what the human wrote.**
+If you open a file in your editor and type code, no hook fires. Git AI has no visibility into manual edits. These lines simply don't appear in the attribution.
+
+**The implication:** Git AI answers the question "which lines did AI write?" The complement — "which lines did the human write?" — is derived by subtraction:
+
+```
+human_lines = total_lines_in_git_diff - agent_attributed_lines
+```
+
+We get `total_lines_in_git_diff` from `git diff --numstat`. This is a reliable ground truth for what changed in the commit.
+
+### 1.3 The three categories
+
+Git AI's own `git ai stats` command classifies every line in a commit's diff into exactly one of three categories:
+
+| Category | Meaning | How determined |
+|----------|---------|----------------|
+| **ai_additions** | Lines the agent wrote via tool calls | From checkpoint data (file map) |
+| **unknown_additions** | Lines in the diff not claimed by any agent | Absence from file map |
+| **human_additions** | Always 0 in practice | Git AI has no human tracking mechanism |
+
+Our dashboard labels `unknown_additions` as **"Human"** because in practice, unattributed lines were either typed by the human or are agent-written lines that fell outside the checkpoint range (see Known Limitations below).
+
+---
+
+## 2. The Git Note Format
+
+Every commit with agent involvement gets a Git Note in `refs/notes/ai`. The note has two sections separated by `---`.
+
+### 2.1 File Map (above `---`) — RELIABLE, per-commit
 
 ```
 src/api/routes/status.ts
-  1612649c4bf0b88e 32
-src/components/Dashboard.tsx
-  1612649c4bf0b88e 2,35-36
+  1612649c4bf0b88e 6,11,15,19,21,27-32,35,37,43
+src/utils/format.ts
+  1612649c4bf0b88e 3,6,9-16
 ```
 
-| Field | Description | Example |
-|-------|-------------|---------|
-| **File path** | Relative path within the repo | `src/api/routes/status.ts` |
-| **Prompt ID** | Links to the specific agent prompt/interaction that produced these lines | `1612649c4bf0b88e` |
-| **Line ranges** | Exact line numbers attributed to that prompt | `2,35-36` = lines 2, 35, 36 |
+This is the **ground truth for attribution**. Each line lists:
+- File path (relative to repo root)
+- Prompt ID + line numbers the agent wrote
 
-Line ranges use comma-separated values and dash ranges: `1-6` = lines 1 through 6, `51-52,54,58-110` = specific ranges and individual lines.
+Line ranges use commas and dashes: `6,11,15` = individual lines; `27-32` = range; `9-16` = lines 9 through 16.
 
-### 1.2 JSON Metadata Section (below `---`)
+### 2.2 JSON Metadata (below `---`) — SESSION-SCOPED, use with caution
 
 ```json
 {
   "schema_version": "authorship/3.0.0",
-  "git_ai_version": "1.3.2",
-  "base_commit_sha": "fc9a230...",
   "prompts": {
-    "<prompt_id>": {
-      "agent_id": {
-        "tool": "claude",
-        "id": "9b4e6eb7-...",
-        "model": "claude-opus-4-6"
-      },
-      "human_author": "Dmytro Shamsiiev",
-      "messages": [],
-      "total_additions": 10,
-      "total_deletions": 0,
-      "accepted_lines": 10,
-      "overriden_lines": 0,
-      "messages_url": "https://usegitai.com/cas/..." 
-    }
-  }
-}
-```
-
-| Field | Type | Description | Always present? |
-|-------|------|-------------|-----------------|
-| `schema_version` | string | Format version (`authorship/3.0.0`) | Yes |
-| `git_ai_version` | string | CLI version that created the note | Yes |
-| `base_commit_sha` | string | The commit this note is attached to | Yes |
-| `prompts` | object | Map of prompt_id -> attribution data | Yes (may be empty for human-only commits) |
-| `prompts.*.agent_id.tool` | string | Agent identifier: `claude`, `cursor`, `copilot`, `codex`, `gemini-cli`, etc. | Yes |
-| `prompts.*.agent_id.id` | string | Session/instance ID of the agent | Yes |
-| `prompts.*.agent_id.model` | string | LLM model used: `claude-opus-4-6`, `gpt-4`, `sonnet-4.5`, etc. | Yes |
-| `prompts.*.human_author` | string | Git user who committed (`Name <email>`) | Yes |
-| `prompts.*.messages` | array | Prompt messages (populated when `prompt_storage != local`) | Yes (may be empty) |
-| `prompts.*.total_additions` | number | Total lines added in this prompt's scope | Yes |
-| `prompts.*.total_deletions` | number | Total lines deleted in this prompt's scope | Yes |
-| `prompts.*.accepted_lines` | number | Lines the human accepted (committed) from the agent's suggestions | Yes |
-| `prompts.*.overriden_lines` | number | Lines the human modified after agent generation | Yes |
-| `prompts.*.messages_url` | string | URL to stored prompt/response content | Only when `prompt_storage != local` |
-
-### 1.3 Derived Fields (computable from the raw data)
-
-| Field | Derivation | Description |
-|-------|-----------|-------------|
-| `agent_lines` | Count lines in file map for each prompt | Lines attributed to AI |
-| `human_lines` | `total_additions - accepted_lines` | Lines not attributed to any agent |
-| `unknown_lines` | Lines in git diff but not in any note | Changes outside agent scope (e.g., auto-generated files) |
-| `agent_percentage` | `agent_lines / (agent_lines + human_lines) * 100` | AI contribution ratio |
-| `override_rate` | `overriden_lines / (accepted_lines + overriden_lines)` | How often humans modify agent output |
-| `files_per_prompt` | Count distinct files per prompt ID | Scope of each agent interaction |
-
-### 1.4 Relationships Between Fields
-
-```
-Session (agent_id.id)
-  └── Prompt (prompt_id)
-        ├── File A
-        │     └── Lines 1-6 (from file map)
-        ├── File B
-        │     └── Lines 35-36, 2 (from file map)
-        └── Metadata
-              ├── total_additions: 10
-              ├── accepted_lines: 10
-              └── overriden_lines: 0
-```
-
-**One commit can have multiple prompts** (agent switched between interactions).
-**One prompt can span multiple files** (agent edited several files in one interaction).
-**One commit can have multiple agents** (developer used Cursor, then Claude before committing).
-
-### 1.5 What Is NOT Preserved
-
-| Missing Data | Why | Workaround |
-|---|---|---|
-| Prompt/response text | Requires `prompt_storage != local` | Enable `notes` or `default` storage; or use Entire's transcript |
-| Token usage | Git AI doesn't track tokens | Use Entire's session data or agent-specific APIs |
-| Time spent per edit | Checkpoints don't record wall-clock time | Approximate from commit timestamps |
-| Friction / blockers | Not in scope for Git AI | Use Entire's friction/open-items signals |
-| Tool calls | Not tracked by Git AI | Use Entire's tool-call aggregation |
-| Why code was written | Only "what" and "who", not "why" | Combine with commit messages + Entire session context |
-
----
-
-## 2. Multi-Agent Behavior — Validated
-
-### 2.1 Concurrent Subagent Test
-
-Three subagents ran in parallel from the same parent session, each editing a different repo:
-
-| Repo | Commit | Files Changed | AI Lines | Human Lines |
-|------|--------|---------------|----------|-------------|
-| Backend | `fc9a230` | `server.ts` lines 22-31 | 10 | 0 |
-| Frontend | `bcf1acb` | `RepoLegend.tsx` 1-18, `Dashboard.tsx` 2,35-36 | 21 | 0 |
-| Workspace | `fa71e28` | `verify-multi-agent-notes.sh` 1-67 | 67 | 0 |
-
-**Observations:**
-- All three share `prompt_id: 1612649c4bf0b88e` and `session_id: 9b4e6eb7-...` — they're children of the same parent Claude Code session.
-- File attribution is correct: each repo's note only lists files changed in THAT repo.
-- Line ranges are correct: e.g., `Dashboard.tsx` shows lines `2,35-36` (the import line and the two lines for `<RepoLegend />`).
-- No cross-contamination: backend note doesn't mention frontend files and vice versa.
-
-### 2.2 How True Multi-Agent Would Appear
-
-When different agent types contribute to the same commit, the note contains multiple entries in `prompts`:
-
-```json
-{
-  "prompts": {
-    "aaa111": {
-      "agent_id": { "tool": "cursor", "model": "gpt-4o" },
-      "accepted_lines": 15
-    },
-    "bbb222": {
+    "1612649c4bf0b88e": {
       "agent_id": { "tool": "claude", "model": "claude-opus-4-6" },
-      "accepted_lines": 8
+      "human_author": "Dmytro Shamsiiev",
+      "total_additions": 174,
+      "accepted_lines": 110,
+      "overriden_lines": 0
     }
   }
 }
 ```
 
-The file map section would show which lines came from which prompt:
-```
-src/feature.ts
-  aaa111 1-15
-  bbb222 16-23
-```
+**Critical finding from testing:** The numeric fields in the JSON metadata (`total_additions`, `accepted_lines`, `overriden_lines`) are **session-scoped, not commit-scoped**. A single prompt ID spans an entire agent session, which may touch multiple files across multiple repos. These numbers accumulate across the session.
 
-This enables per-agent breakdown within a single commit — a scenario our DB schema already handles via the `(repo, commit_sha, agent)` primary key.
+| JSON Field | Per-commit? | Reliable for metrics? |
+|-----------|-------------|----------------------|
+| `agent_id.tool` | Yes | **Yes** — correct per commit |
+| `agent_id.model` | Yes | **Yes** — correct per commit |
+| `human_author` | Yes | **Yes** — but prefer git commit Author (has email) |
+| `total_additions` | **No** — session-wide | **No** — may be 174 when commit added 88 lines |
+| `accepted_lines` | **No** — session-wide | **No** — same issue |
+| `overriden_lines` | **No** — session-wide | **No** — can't use for per-commit override rate |
+| `messages` | Always `[]` with `prompt_storage: local` | N/A |
 
-### 2.3 Multi-Agent Limitations Observed
+### 2.3 What we actually use for metrics
 
-- **Subagents share parent prompt ID:** Parallel subagents dispatched from the same Claude Code session all use the same prompt ID. They appear as a single "interaction" in the notes. To distinguish them, you'd need to correlate with the agent framework's own task IDs.
-- **Agent tool name granularity:** Claude Code subagents all report as `tool: "claude"`. The framework doesn't distinguish "main agent" from "subagent". True multi-agent distinction only appears when DIFFERENT agent products are used (Claude vs Cursor vs Copilot).
-
----
-
-## 3. Metrics Catalog — What Can Be Built
-
-### 3.1 Commit-Level Metrics (per commit)
-
-| Metric | Source Fields | Description | Use Case |
-|--------|-------------|-------------|----------|
-| **AI Contribution %** | `accepted_lines / total_additions * 100` | Percentage of committed code written by AI | ROI dashboard headline number |
-| **AI Lines Added** | `accepted_lines` | Absolute count of AI-authored lines | Volume tracking |
-| **Human Lines Added** | `total_additions - accepted_lines` | Lines written by human | Complement to AI metric |
-| **Override Rate** | `overriden_lines / (accepted_lines + overriden_lines)` | How often humans modify AI output | Quality signal — high override = low suggestion quality |
-| **Deletion Impact** | `total_deletions` | Lines deleted in AI-assisted edits | Refactoring/cleanup signal |
-| **Files Touched** | Count of files in file map | Scope of the commit | Complexity indicator |
-| **Agent Identity** | `agent_id.tool` | Which agent wrote the code | Per-agent comparison |
-| **Model Used** | `agent_id.model` | Which LLM model | Model quality comparison |
-
-### 3.2 Repository-Level Metrics (aggregated per repo)
-
-| Metric | Aggregation | Description |
-|--------|-------------|-------------|
-| **Avg AI %** | `AVG(agent_percentage)` over all commits | Overall AI adoption level in a repo |
-| **Total AI Lines** | `SUM(agent_lines)` | Cumulative AI code volume |
-| **AI Adoption Trend** | AI % grouped by week/month | Is AI usage increasing? |
-| **Agent Mix** | `GROUP BY agent` | Which agents are used in this repo |
-| **Model Mix** | `GROUP BY model` | Which models are used |
-| **Human-Only Commit Rate** | Commits where `prompts = {}` / total commits | How often devs work without AI |
-
-### 3.3 Developer-Level Metrics (aggregated per human_author)
-
-| Metric | Aggregation | Description |
-|--------|-------------|-------------|
-| **AI Reliance %** | Avg AI % across developer's commits | How much each dev relies on AI |
-| **Override Rate** | Avg override rate across dev's commits | Does this dev frequently modify AI output? |
-| **Agent Preference** | Most common `agent_id.tool` per author | Which agent does each dev prefer? |
-| **Model Preference** | Most common `agent_id.model` per author | Which model does each dev use? |
-| **Productivity Delta** | AI lines/day with agents vs without | Does AI increase output? (requires baseline) |
-
-### 3.4 Session-Level Metrics (aggregated per agent_id.id)
-
-| Metric | Aggregation | Description |
-|--------|-------------|-------------|
-| **Session Scope** | Distinct repos touched per session ID | Cross-repo reach of a session |
-| **Session Output** | Sum of AI lines per session | Total AI contribution per session |
-| **Commits Per Session** | Count commits per session ID | Session productivity |
-| **Prompt Efficiency** | Lines per prompt (accepted_lines / prompt count) | How productive each interaction is |
-| **Session Agent Mix** | Distinct agents per session | Multi-agent session detection |
-
-### 3.5 Time-Series Metrics (trend analysis)
-
-| Metric | Time Dimension | Description |
-|--------|---------------|-------------|
-| **AI % Over Time** | By week/month, using `captured_at` | Adoption trajectory |
-| **Agent Adoption Curve** | First appearance of each agent per repo over time | When did each tool enter the workflow? |
-| **Override Rate Trend** | By week, using `captured_at` | Is AI suggestion quality improving? |
-| **Commit Velocity (AI-assisted)** | Commits/week where AI % > 0 | Does AI increase commit frequency? |
-| **Lines Per Day (AI vs Human)** | Daily sum split by AI/human | Productivity trend |
-
-### 3.6 Cross-Repo / Workspace Metrics
-
-| Metric | Source | Description |
-|--------|--------|-------------|
-| **Cross-Repo Session %** | Sessions touching >1 repo / total sessions | How often agents work across repos |
-| **Repo Coupling** | Repos commonly edited in the same session | Implicit dependency map |
-| **Hub vs Direct** | Sessions launched from workspace vs service repo | Workflow pattern analysis |
-
-### 3.7 Quality & Trust Metrics
-
-| Metric | Source | Description |
-|--------|--------|-------------|
-| **Override Rate** | `overriden_lines` | Direct signal of AI suggestion quality |
-| **Acceptance Rate** | `accepted_lines / (accepted_lines + overriden_lines)` | Inverse of override rate |
-| **AI Churn Rate** | AI-authored lines that are modified/deleted in subsequent commits | How durable is AI code? |
-| **AI Bug Correlation** | Cross-reference AI % with bug-fix commits | Are AI-heavy commits more likely to need fixes? |
+| Metric | Source | How |
+|--------|--------|-----|
+| Agent-attributed lines | **File map** line ranges | Count lines from ranges |
+| Total lines changed | `git diff --numstat` | Per-commit ground truth |
+| Human/unattributed lines | `diff_additions - agent_lines` | Derived |
+| Agent tool | **JSON** `agent_id.tool` | Reliable per commit |
+| Model | **JSON** `agent_id.model` | Reliable per commit |
+| Commit author | `git log --format=%aN <%aE>` | From git, not from note |
+| Commit date | `git log --format=%aI` | From git |
 
 ---
 
-## 4. Comparison: Git AI Data vs Entire Data
+## 3. Known Limitations
 
-| Metric Category | Git AI | Entire | Combined Value |
-|----------------|--------|--------|---------------|
-| **Line-level attribution** | Per-line, per-agent, per-model | Not available | Git AI is the only source |
-| **File-level attribution** | Derived from line data | Direct from transcript | Redundant — Git AI is more precise |
-| **Agent identification** | Direct (tool + model + session) | From transcript metadata | Both valid; Git AI more structured |
-| **Token usage** | Not tracked | Input/output/cache tokens | Entire is the only source |
-| **Friction signals** | Not tracked | Friction items per session | Entire is the only source |
-| **Open items / learnings** | Not tracked | Per-session extraction | Entire is the only source |
-| **Tool call patterns** | Not tracked | Tool name + count per repo | Entire is the only source |
-| **Slash command usage** | Not tracked | Per-repo command set | Entire is the only source |
-| **Session duration** | Approximation from commit timestamps | Start/end from transcript | Entire is more accurate |
-| **Override behavior** | `overriden_lines` count | Not tracked | Git AI is the only source |
-| **Cross-repo sessions** | Via shared session ID in notes | Via transcript `filePath` events | Both valid; Git AI per-line, Entire per-file |
+### 3.1 Incomplete line range coverage
 
-### Recommended Combined Data Model
+**Symptom:** An agent creates a file with 88 lines. The file map attributes lines 7-78 (72 lines). The remaining 16 lines are classified as "human" even though the agent wrote them.
+
+**Cause:** Git AI's checkpoint mechanism sometimes doesn't cover the first and last few lines of a file, particularly when:
+- The file was created via a single `Write` tool call (the initial lines and trailing lines fall outside the checkpoint boundary)
+- The file has leading headers, blank lines at the top, or trailing content
+
+**Impact:** Agent attribution is **conservative** — it may undercount by 5-15% on file-creation commits. For edits to existing files, coverage is more precise because the pre/post diff is tighter.
+
+**Our approach:** Accept the undercount. The file map is still the best source of truth. The alternative (trusting `accepted_lines` from JSON metadata) would overcount because those numbers are session-scoped.
+
+### 3.2 Blank lines within attributed ranges ARE counted
+
+**Tested and confirmed:** Git AI includes blank lines that fall within an attributed range. If the agent wrote lines 1-18 and some of those are blank, all 18 are counted as AI-attributed. Blank lines are only "missed" when they fall outside the attributed range (see 3.1).
+
+### 3.3 JSON metadata is session-scoped
+
+**Symptom:** A commit's note shows `total_additions: 174` but the commit's actual diff only has 88 additions.
+
+**Cause:** The `prompt_id` in the note spans the entire agent session. If the session edited files in 3 repos and produced 3 commits, the `total_additions` in each note reflects the cumulative session total, not the individual commit.
+
+**Impact:** The following JSON fields are unreliable for per-commit metrics:
+- `total_additions` / `total_deletions`
+- `accepted_lines`
+- `overriden_lines`
+
+**Our approach:** Ignore these fields for metrics. Use the file map (lines) + `git diff --numstat` (totals) instead.
+
+### 3.4 Human-only commits have empty notes
+
+**Tested:** When a commit is made entirely by hand (no agent involvement), Git AI still creates a note, but with an empty file map and `"prompts": {}`.
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   DASHBOARD                          │
-├──────────────────────┬──────────────────────────────┤
-│    Git AI Metrics     │     Entire Metrics           │
-├──────────────────────┼──────────────────────────────┤
-│ AI % per commit       │ Session duration             │
-│ Agent/model breakdown │ Token usage                  │
-│ Line-level attribution│ Friction & blockers          │
-│ Override rate         │ Open items / learnings       │
-│ Cross-repo line maps  │ Tool call patterns           │
-│ Squash survival       │ Slash command frequency      │
-│ Human-only detection  │ Subagent spawn count         │
-└──────────────────────┴──────────────────────────────┘
-             ↓ joined by session ID / commit SHA ↓
-┌─────────────────────────────────────────────────────┐
-│              COMBINED INSIGHTS                       │
-├─────────────────────────────────────────────────────┤
-│ "Session X: 45 min, 3.2k tokens, produced 2 commits │
-│  across backend+frontend, 94% AI-authored,           │
-│  1 friction item (type error), 0 overrides"          │
-└─────────────────────────────────────────────────────┘
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "prompts": {}
+}
 ```
 
----
+Our ingestion correctly handles this: `agent_lines = 0`, `human_lines = diff_additions`.
 
-## 5. Production Metrics Dashboard — Recommended Panels
+### 3.5 Merge commits have no notes
 
-### Tier 1: Executive / Stakeholder (Weekly Report)
+GitHub/GitLab merge commits created server-side never have Git AI notes (no agent was involved). Our ingestion correctly skips these — it only processes commits listed by `git notes --ref=ai list`.
 
-1. **AI Adoption Score** — Org-wide AI contribution % (weighted avg across repos)
-2. **AI Lines This Week** — Total AI-authored lines committed
-3. **Agent Distribution** — Pie chart: Claude vs Cursor vs Copilot vs other
-4. **Top Repos by AI %** — Bar chart: which repos use AI the most
-5. **Trend** — AI % over the past 12 weeks
+**Squash merges via GitHub/GitLab web UI** are problematic: the original commits (with notes) are discarded, and the new squash commit has no note. Use fast-forward or regular merge to preserve attribution.
 
-### Tier 2: Engineering Manager (Per-Team)
+### 3.6 Notes pushed separately from code
 
-6. **Team AI %** — Per-team breakdown (by committer)
-7. **Override Rate** — Are suggestions being accepted or modified?
-8. **Cross-Repo Session Rate** — How often do agents work across service boundaries?
-9. **Model Usage** — Which models are teams using? (cost implication)
-10. **Human-Only Commit Rate** — Balance metric: not everything should be AI
+`git push` does not push notes by default. Developers must configure:
 
-### Tier 3: Developer (Self-Service)
+```bash
+git config --add remote.origin.push 'refs/heads/*:refs/heads/*'
+git config --add remote.origin.push 'refs/notes/*:refs/notes/*'
+```
 
-11. **My AI %** — Personal AI contribution trend
-12. **My Agent Mix** — Which tools am I using?
-13. **My Override Rate** — Am I accepting or modifying suggestions?
-14. **My Session Productivity** — Lines per session, commits per session
-15. **File-Level Attribution** — `git ai blame` on any file
-
-### Tier 4: Quality & Trust (Engineering Leadership)
-
-16. **AI Churn Rate** — AI lines modified/deleted within 7 days
-17. **AI Bug Correlation** — Bug-fix commits vs AI % in parent commit
-18. **High-Override Files** — Files where AI suggestions are frequently modified
-19. **Agent Quality Comparison** — Override rate per agent type
-20. **Model Quality Comparison** — Override rate per model version
+If a developer forgets, their commits arrive without notes. The commits will show as 100% human on the dashboard.
 
 ---
 
-## 6. Data Volume Estimates for Production (60 repos)
+## 4. Data Pipeline
 
-Based on our PoC data:
+### 4.1 Ingestion flow
 
-| Metric | PoC (3 repos) | Projected (60 repos) |
-|--------|--------------|---------------------|
-| Commits with notes | 56 | ~1,100/month* |
-| DB rows (`gitai_commit_attribution`) | 56 | ~1,100/month |
-| Note size (avg) | ~500 bytes | ~500 bytes |
-| Total notes storage | ~28 KB | ~550 KB/month |
-| GitHub API calls per ingestion | ~60 | ~1,200 |
-| Ingestion time | ~60 seconds | ~20 minutes** |
+```
+Every 5 minutes (configurable):
 
-*Assuming ~20 commits/repo/month with agent involvement.
-**Can be reduced to ~2 minutes with incremental ingestion (track last-seen note).
+1. For each repo:
+   a. git fetch origin refs/notes/*:refs/notes/*    ← pull other devs' notes
+   b. git fetch origin                               ← pull latest commits
+   c. git notes --ref=ai list                        ← all commit SHAs with notes
+   d. Filter: skip commits already in DB (watermark + SHA check)
+   e. For each NEW commit:
+      - git notes --ref=ai show <sha>                ← note content
+      - git diff --numstat <sha>^..<sha>             ← actual lines changed
+      - git log -1 --format=%aI%n%aN <%aE>%n%s <sha> ← date, author, message
+      - Parse file map → count agent lines
+      - human_lines = diff_additions - agent_lines
+      - Upsert to database
 
-Storage is negligible. API rate limits (5,000/hour authenticated) are the constraint — incremental ingestion is the production-critical optimization.
+2. Dashboard reads from database with time-range filters
+```
+
+### 4.2 Incremental ingestion
+
+The ingestion is incremental:
+- Uses `MAX(captured_at)` per repo as a watermark (indexed column, O(1) lookup)
+- Only processes commits newer than the watermark
+- Falls back to SHA check for edge cases (same-second commits)
+- A full re-ingestion from empty DB takes seconds (all data is in git notes)
+
+### 4.3 Database is a derived cache
+
+The SQLite database can be deleted and rebuilt at any time. Git notes are the permanent source of truth — they live in the repo's git history and travel with push/fetch. The database is just a queryable cache for the dashboard.
 
 ---
 
-## 7. Schema Reference
-
-### Current Schema (PoC)
+## 5. Database Schema
 
 ```sql
 CREATE TABLE gitai_commit_attribution (
   repo TEXT NOT NULL,
   commit_sha TEXT NOT NULL,
-  agent TEXT NOT NULL,            -- e.g., 'claude', 'cursor', 'copilot'
-  model TEXT,                      -- e.g., 'claude-opus-4-6', 'gpt-4'
-  agent_lines INTEGER NOT NULL,    -- lines attributed to AI
-  human_lines INTEGER NOT NULL,    -- lines not attributed to AI
-  agent_percentage REAL NOT NULL,  -- derived: agent_lines / total * 100
-  prompt_id TEXT,                  -- links to the agent interaction
-  files_touched_json TEXT,         -- JSON array of {file, lineRanges, lineCount}
-  raw_note_json TEXT,              -- full Git Note content for auditability
-  captured_at TIMESTAMP,           -- commit timestamp
+  agent TEXT NOT NULL,              -- 'claude', 'cursor', 'copilot'
+  model TEXT,                        -- 'claude-opus-4-6', 'gpt-4'
+  agent_lines INTEGER NOT NULL,      -- from file map line ranges
+  human_lines INTEGER NOT NULL,      -- diff_additions - agent_lines
+  agent_percentage REAL NOT NULL,    -- agent_lines / diff_additions * 100
+  prompt_id TEXT,                    -- session-level prompt identifier
+  commit_author TEXT,                -- 'Name <email>' from git log
+  commit_message TEXT,               -- commit subject line
+  diff_additions INTEGER DEFAULT 0,  -- from git diff --numstat
+  diff_deletions INTEGER DEFAULT 0,  -- from git diff --numstat
+  files_touched_json TEXT,           -- [{file, lineRanges, lineCount}]
+  raw_note_json TEXT,                -- full note for auditability
+  captured_at TIMESTAMP,             -- commit date
   ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (repo, commit_sha, agent)
 );
 ```
 
-### Recommended Production Extensions
+**Primary key includes `agent`** because a single commit could have contributions from multiple agents (e.g., developer used Cursor then Claude before committing).
 
-```sql
--- Override tracking (from overriden_lines in notes)
-ALTER TABLE gitai_commit_attribution ADD COLUMN overridden_lines INTEGER DEFAULT 0;
+---
 
--- Session correlation
-ALTER TABLE gitai_commit_attribution ADD COLUMN session_id TEXT;
--- Enables joining with Entire's sessions table
+## 6. Dashboard Charts
 
--- Human author (from notes)
-ALTER TABLE gitai_commit_attribution ADD COLUMN human_author TEXT;
--- Enables developer-level metrics
+The current dashboard shows 10 charts, all powered by Git AI data:
 
--- Deletion tracking
-ALTER TABLE gitai_commit_attribution ADD COLUMN deletion_lines INTEGER DEFAULT 0;
+### Overview (headline metrics)
 
--- Messages URL (when prompt_storage != local)
-ALTER TABLE gitai_commit_attribution ADD COLUMN messages_url TEXT;
-```
+| Chart | Type | What it shows |
+|-------|------|--------------|
+| Avg Agent Attribution | Stat card | Overall AI contribution % across all commits |
+| Pure-AI Commit Rate | Stat card | % of commits that are 100% AI-authored |
+| First-Time-Right Rate | Stat card | % of commits where agent code was accepted without modification |
+| Agent % Over Time | Line chart | Smoothed (3-commit rolling avg) AI contribution trend |
+
+### Breakdown (who/what/where)
+
+| Chart | Type | What it shows |
+|-------|------|--------------|
+| Attribution Breakdown | Stacked bar | AI vs human lines per commit |
+| AI Usage by Developer | Horizontal bar | Avg AI % per developer (by commit author email) |
+| Model Distribution | Doughnut | Commit count by LLM model |
+| Files by Layer | Stacked bar | AI/human lines by architectural layer (components, routes, utils, tests, docs, etc.) |
+
+### Patterns (tempo + quality)
+
+| Chart | Type | What it shows |
+|-------|------|--------------|
+| Human Edit Rate | Bar | Human edit % per commit (inverse of AI %) |
+| Commit Cadence | Bar | Hours between consecutive commits |
+
+### Commit Detail
+
+Clicking any commit in the `/commits` list opens a detail page showing:
+- Summary header (SHA, repo, agent, model, stat cards)
+- File attribution map (per-file line ranges with progress bars)
+- Raw Git Note (file map + JSON, split and formatted)
+- Local prompt metadata (from `~/.git-ai/internal/db`, if available)
+- Transcript download button
+
+---
+
+## 7. Metrics That CANNOT Be Built from Git AI Alone
+
+| Metric | Why not | Alternative |
+|--------|---------|------------|
+| Token usage per session | Git AI doesn't track API calls | Agent-specific APIs or billing data |
+| Session duration | No start/end timestamps | Approximate from first/last commit in a prompt_id group |
+| Friction / blockers | Not in scope | Manual tracking or Entire IO |
+| Tool call patterns | Not tracked | Agent transcript analysis |
+| Override rate (per commit) | `overriden_lines` is session-scoped | Would need Git AI to fix this upstream |
+| Prompt quality analysis | Requires prompt text | Enable `prompt_storage: notes` (sends to usegitai.com) |

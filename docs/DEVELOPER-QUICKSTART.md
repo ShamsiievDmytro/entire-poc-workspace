@@ -48,15 +48,17 @@ cd ~/Projects/metrics_2_0/entire-poc-workspace
 
 ```bash
 cd ~/Projects/metrics_2_0/entire-poc-backend
-npm install && npm run dev
-# API listens on http://localhost:3000
+npm install
+npx tsx src/index.ts
+# API listens on http://localhost:3001
 ```
 
 ## 4. Start the Frontend
 
 ```bash
 cd ~/Projects/metrics_2_0/entire-poc-frontend
-npm install && npm run dev
+npm install
+npx vite
 # Dashboard at http://localhost:5173
 ```
 
@@ -81,8 +83,6 @@ Open `entire-poc.code-workspace` in VS Code for a multi-root view of all three r
 
 | Document | Purpose |
 |----------|---------|
-| [GITAI-PRODUCTION-ROLLOUT-GUIDE.md](GITAI-PRODUCTION-ROLLOUT-GUIDE.md) | Full production deployment guide |
-| [GITAI-STORAGE-ARCHITECTURE.md](GITAI-STORAGE-ARCHITECTURE.md) | How Git AI stores and transmits data |
-| [GITAI-DATA-AND-METRICS.md](GITAI-DATA-AND-METRICS.md) | Metrics schema and dashboard integration |
-| [GITAI-VALIDATION-RESULTS.md](GITAI-VALIDATION-RESULTS.md) | PoC validation results |
-| [CHARTS.md](CHARTS.md) | Dashboard chart specifications |
+| [GITAI-DATA-AND-METRICS.md](GITAI-DATA-AND-METRICS.md) | How Git AI works, data model, known limitations |
+| [GITAI-STORAGE-ARCHITECTURE.md](GITAI-STORAGE-ARCHITECTURE.md) | Storage layers from local to remote |
+| [GITAI-PRODUCTION-ROLLOUT-GUIDE.md](GITAI-PRODUCTION-ROLLOUT-GUIDE.md) | Full production deployment guide for multi-repo workspace |

@@ -1,8 +1,8 @@
 # Git AI Storage Architecture — Layer-by-Layer
 
-**Date:** 2026-04-21
+**Last updated:** 2026-04-22
 **Git AI CLI:** 1.3.2
-**Inspected from:** entire-poc-backend repo with 29 attributed commits
+**Inspected from:** entire-poc-backend repo with 91+ attributed commits
 
 ---
 
