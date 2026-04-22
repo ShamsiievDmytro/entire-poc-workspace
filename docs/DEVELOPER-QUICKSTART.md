@@ -1,6 +1,8 @@
 # Developer Quickstart
 
-Get up and running with the Entire IO PoC workspace in under 10 minutes.
+Get up and running with the Git AI metrics PoC workspace in under 10 minutes. I updated this line
+
+Here is my new line
 
 ## Prerequisites
 
