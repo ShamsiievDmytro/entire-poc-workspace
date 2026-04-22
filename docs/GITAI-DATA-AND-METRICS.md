@@ -262,15 +262,14 @@ The current dashboard shows 10 charts, all powered by Git AI data:
 | Chart | Type | What it shows |
 |-------|------|--------------|
 | Attribution Breakdown | Stacked bar | AI vs human lines per commit |
-| AI Usage by Developer | Horizontal bar | Avg AI % per developer (by commit author email) |
+| AI Usage by Developer | Horizontal bar | Avg AI % per developer (name truncated, full email on hover) |
 | Model Distribution | Doughnut | Commit count by LLM model |
-| Files by Layer | Stacked bar | AI/human lines by architectural layer (components, routes, utils, tests, docs, etc.) |
+| AI vs Human Rate by Day | Stacked bar | Daily AI % vs Human % (aggregated per day, not per commit) |
 
-### Patterns (tempo + quality)
+### Patterns (tempo)
 
 | Chart | Type | What it shows |
 |-------|------|--------------|
-| Human Edit Rate | Bar | Human edit % per commit (inverse of AI %) |
 | Commit Cadence | Bar | Hours between consecutive commits |
 
 ### Commit Detail
